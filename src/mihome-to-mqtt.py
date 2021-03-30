@@ -110,6 +110,7 @@ import json
 import paho.mqtt.client as mqtt
 
 APP_DELAY    = 2
+
 mqttHost = "localhost"
 mqttPort = 1883 # MQTT=1883, MQTT+TLS=8883
 mqttUser = ""
@@ -133,7 +134,7 @@ if os.getenv('MQTT_HOST') is not None:
     mqttHost = os.getenv('MQTT_HOST')
 
 if os.getenv('MQTT_PORT') is not None:
-    mqttPort = os.getenv('MQTT_PORT')
+    mqttPort = int(os.getenv('MQTT_PORT'))
 
 if os.getenv('MQTT_USER') is not None:
     mqttUser = os.getenv('MQTT_USER')
@@ -154,6 +155,8 @@ if os.getenv('MQTT_KEEPALIVE') is not None:
     mqttKeepalive = int(os.getenv('MQTT_KEEPALIVE'))
 
 if os.getenv('MQTT_PROTO_VERSION') is not None:
+    # TODO It'd be nice to support future protocol versions without having to update this list.
+    #      Can that be done while still performing some validation here?
     envProtoVersion = os.getenv('MQTT_PROTO_VERSION')
     if envProtoVersion.lower() == 'mqttv31':
         mqttProtocolVersion = mqtt.MQTTv31
@@ -371,30 +374,42 @@ def prodIdToName(prodId):
         prodName = "OpenSensor"
     return prodName
 
+# Incoming Energenie message handler, to MQTT-publish every message.
+def energenie_incoming(address, message):
+    # `address` is a tuple of (manufId, prodId, sensorId), which are
+    #  all in the `data` object returned from `getDataFromMessage()`.
+    # So `address` doesn't have to be returned separately.
+    # Example:
+    #  manufId:4, sensorId:2047, prodId:1
+    #  address:(4, 1, 2047)
 
-def energy_monitor_loop():
-    # Process any received messages from the real radio
-    # TODO Is this where "new device found; add to registry?" messages are generated?
-    energenie.loop()
+    #print("\nIncoming from {0} :: {1}".format(str(address), message))
+    data = getDataFromMessage(message)
+    #print(data)
+    #print("Data [{0}]: {1}".format(address, data))
 
-    # For all devices in the registry, if they have a get_power(), call it
-    #print("Checking device status")
-    #for d in energenie.registry.devices():
-        #print(">> {0}".format(d))
-    #    try:
-            # TODO Does this ever do anything? I don't think I've seen one of these messages...
-            # TODO Maybe all the data is handled by the `energenie.loop()` line, above?
-            # TODO (Unless we have to call this to prompt devices to report data? Seems unlikely when the regular Energenie hub will be collecting data all the time anyway...)
-    #        p = d.get_power()
-    #        print("Power: %f" % p)
-    #    except:
-    #        pass # Ignore it if can't provide a power
+    topicManufName = data['ManufacturerName']
+    topicProdCode = data['ProductCode']
+    topicProdName = data['ProductName']
+    if topicManufName == None:
+        topicManufName = "UNKNOWN"
+    if topicProdCode == None:
+        topicProdCode = "UNKNOWN"
+    if topicProdName == None:
+        topicProdName = "UNKNOWN"
 
-    time.sleep(APP_DELAY)
+    mqttClient.publish(
+            # Topic example: energenie/4/1/2047
+            mqttTopic + "/{0}/{1}/{2}/{3}/{4}/{5}".format(data['ManufacturerID'], topicManufName, data['ProductID'], topicProdCode, topicProdName, data['SensorID']),
+            json.dumps(data),
+            qos=mqttQoS,
+            retain=mqttRetain
+        )
 
 
 if __name__ == "__main__":
     try:
+        # Connect to MQTT...
         mqttClient = mqtt.Client(client_id=mqttClientId,
                 clean_session=mqttCleanSession, protocol=mqttProtocolVersion)
         #mqttClient.enable_logger()
@@ -405,6 +420,7 @@ if __name__ == "__main__":
 
         # Max num of QoS>0 messages in the process of being sent/acknowledged (default=20)
         # This system seems to receive data in bursts, so it's plausible we might have quite a lot in progress at once.
+        # TODO Make this configurable with an env var?
         mqttClient.max_inflight_messages_set(50)
         # Max num of pending QoS>0 messages in the outgoing queue (default=0, aka unlimited)
         #mqttClient.max_queued_messages_set(0)
@@ -427,58 +443,39 @@ if __name__ == "__main__":
         mqttClient.connect_async(mqttHost, port=mqttPort,
                 keepalive=mqttKeepalive, bind_address=bindAddr)
 
-        # This starts a new thread to handle network traffic, automatic reconnections, etc.
+        # Start a new thread to handle network traffic, automatic reconnections, etc.
         mqttClient.loop_start()
     except Exception as e:
         # exit("...") writes to stderr and exits with status=1
         exit("MQTT initialisation failed with '{0}' error: {1}".format(type(e), e))
 
-
     print("Initialising Energenie...", file=sys.stderr)
     energenie.init()
 
-    # Default incoming message handler, for MQTT-publishing every message.
-    def incoming(address, message):
-        # `address` is a tuple of (manufId, prodId, sensorId), which are
-        #  all in the `data` object returned from `getDataFromMessage()`.
-        # So `address` doesn't have to be returned separately.
-        # Example:
-        #  manufId:4, sensorId:2047, prodId:1
-        #  address:(4, 1, 2047)
+    energenie.fsk_router.when_incoming(energenie_incoming)
 
-        #print("\nIncoming from {0} :: {1}".format(str(address), message))
-        data = getDataFromMessage(message)
-        #print(data)
-        #print("Data [{0}]: {1}".format(address, data))
-
-        topicManufName = data['ManufacturerName']
-        topicProdCode = data['ProductCode']
-        topicProdName = data['ProductName']
-        if topicManufName == None:
-            topicManufName = "UNKNOWN"
-        if topicProdCode == None:
-            topicProdCode = "UNKNOWN"
-        if topicProdName == None:
-            topicProdName = "UNKNOWN"
-
-        mqttClient.publish(
-                # Topic example: energenie/4/1/2047
-                mqttTopic + "/{0}/{1}/{2}/{3}/{4}/{5}".format(data['ManufacturerID'], topicManufName, data['ProductID'], topicProdCode, topicProdName, data['SensorID']),
-                json.dumps(data),
-                qos=mqttQoS,
-                retain=mqttRetain
-            )
-
-    energenie.fsk_router.when_incoming(incoming)
+    # Specify discovery behaviour from one of these:
+    # (See `discover_mihome.py` for `ask_fn` example)
+    # These discovery types are defined in `energenie/__init__.py` (lines ~98-120) and `energenie/Registry.py` (lines 220 onwards).
+    # TODO `discovery_auto()` was I think to blame for the registry file becoming almost 200 KiB within a day or two. Trying without it for now...
+    #energenie.discovery_auto() # Auto-add unknown devices
+    ##energenie.discovery_ask(ask_fn) # Asks for confirmation before adding unknown devices
+    ##energenie.discovery_autojoin() # Looks for join requests and auto-adds
+    ##energenie.discovery_askjoin(ask_fn) # Looks for join requests, then asks for confirmation before adding
 
     try:
         while True:
             energenie.loop()
-            time.sleep(APP_DELAY)
+            # time.sleep() was only used by the example script because it was toggling switches.
+            # The `discover_mihome.py` example doesn't use time.sleep() at all.
+            # Although `setup_tool.py`'s `do_mihome_discovery()` uses `time.sleep(0.25)`...
+            #time.sleep(0.25)
+            time.sleep(1)
+            #time.sleep(APP_DELAY)
 
             #energy_monitor_loop()
     except KeyboardInterrupt:
-        print("Interrupted. Exiting.")
+        print("Interrupted. Exiting.", file=sys.stderr)
         exit(0)
     #except Exception as e:
         # `Exception` is the base class of all exceptions that we're "supposed"
