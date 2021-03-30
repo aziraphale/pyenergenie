@@ -1,0 +1,105 @@
+[Unit]
+Description=Energenie MiHome 433MHz data listener
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+# Location of `mihome-to-mqtt.py`
+WorkingDirectory=/home/pi/pyenergenie/src
+
+# MQTT broker hostname.
+# Default=''
+Environment="MQTT_HOST=mqtt.local"
+
+# MQTT broker port number.
+# MQTT (no TLS) = 1883 (default)
+# MQTT + TLS = 8883
+#Environment="MQTT_PORT=1883"
+
+# MQTT broker authentication username.
+# Default=''
+#Environment="MQTT_USER=mqtt"
+
+# MQTT broker authentication password.
+# Default=''
+#Environment="MQTT_PASS="
+
+# MQTT client ID for login.
+# Default='energenie_<hostname>_<PID>'
+#Environment="MQTT_CLIENT_ID=energenie-mqtt"
+
+# Use clean MQTT session.
+# Use '1'/'True' for TRUE; anything else for FALSE (case-insensitive).
+# Default: TRUE
+#Environment="MQTT_CLEAN_SESSION=True"
+
+# Bind MQTT communication to the specified interface IP address.
+# Used to, e.g., hopefully keep traffic on Ethernet rather than WiFi.
+# Default: don't bind to any specific interface.
+#Environment="MQTT_BIND_ADDRESS=192.168.3.14"
+
+# How often to send MQTT keepalive packets, in seconds.
+# Default=60 seconds.
+#Environment="MQTT_KEEPALIVE=60"
+
+# MQTT protocol version to use.
+# One of: MQTTv31, MQTTv311 (case-insensitive).
+# Default: MQTTv311
+#Environment="MQTT_PROTO_VERSION=MQTTv311"
+
+# Min & max secs to wait between MQTT reconnection attempts.
+# Default: Min=1, Max=120
+#Environment="MQTT_RECONNECT_MIN_DELAY_SECS=1"
+#Environment="MQTT_RECONNECT_MAX_DELAY_SECS=30"
+
+# MQTT topic prefix.
+# Default: 'energenie/<hostname>'
+#Environment="MQTT_TOPIC=energenie/raspberry"
+
+# MQTT will payload.
+# Msg sent by MQTT broker (to subbed clients) if we disconnect unexpectedly.
+# Uses above MQTT_TOPIC with "/lwt" suffix; same QoS & retain settings (below).
+# Default: "Offline"
+#Environment="MQTT_WILL_PAYLOAD=Offline"
+
+# MQTT QoS.
+# 0 = no QoS; 1 = at least once; 2 = exactly once.
+# Default: 1
+#Environment="MQTT_QOS=1"
+
+# MQTT retain flag.
+# Use '1'/'True' for TRUE; anything else for FALSE (case-insensitive).
+# Default: TRUE
+#Environment="MQTT_RETAIN=True"
+
+
+# The pyenergenie library is very spammy on stdout, writing a lot of text
+#  that systemd doesn't need to know about. Therefore we're sending stdout
+#  to /dev/null and only logging stderr to systemd/journalctl.
+# This isn't an ideal solution - it'd be preferable to reduce pyenergenie's
+#  verbosity - but it's better than flooding journalctl!
+#
+# StandardOutput=null -> stdout sent to /dev/null
+# StandardOutput=journal -> the default (sent to journalctl, which by default
+#                           also writes to syslog)
+StandardOutput=null
+StandardError=journal # Send to journal (and probably syslog as well)
+
+ExecStart=/bin/sh -c './mihome-to-mqtt.py'
+
+Type=simple
+# ALWAYS restart this service!
+# It needs to handle situations such as the MQTT broker being temporarily
+#  offline (e.g. when Home Assistant restarts for an update, if that's where
+#  the broker is running).
+# So a moderate restart delay is used, and systemd's "restarting too often"
+#  mechanism is tweaked so it doesn't get upset.
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
+#StartLimitIntervalSec=10s
+#StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
+
