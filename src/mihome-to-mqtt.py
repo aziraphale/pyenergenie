@@ -120,9 +120,32 @@ mqttCleanSession = True
 mqttBindAddress = None
 mqttKeepalive = 60
 mqttProtocolVersion = mqtt.MQTTv311 # MQTTv31 or MQTTv311
+
+# Max num of QoS>0 msgs in process of being sent/ack'd (default=20)
+# This system seems to receive data in bursts, so it's plausible we might have
+#  quite a lot in progress at once, especially if we have a bit of network lag
+#  causing acknowledgments to be delayed.
+# Note that this is only for messages that we've started sending to a connected
+#  broker. If the broker is disconnected, the `mqttMaxQueuedMessages` option
+#  applies instead.
+# TODO Add env var for this
+mqttMaxInflightMessages = 50
+
+# Max num of pending QoS>0 messages in the outgoing queue.
+# Might want to limit this so that, e.g., several hours' worth of data doesn't
+#  end up queued and getting sent all at once. I don't see an advantage to
+#  queuing all that much data unless the receiving clients are using the
+#  timestamp to properly record old data - e.g. adding it to InfluxDB with the
+#  correct timestamp.
+# Default=0, aka unlimited
+# TODO Add env var for this
+mqttMaxQueuedMessages = 0
+
 mqttReconnectDelayMin = 1 # min secs to wait between reconnection attempts
 mqttReconnectDelayMax = 120 # max secs to wait between reconnection attempts
 mqttTopic = "energenie"
+
+#mqttWillPayload = None
 mqttWillPayload = "Offline"
 mqttQoS = 1
 mqttRetain = True
@@ -130,6 +153,8 @@ mihomeListenerName = socket.gethostname()
 timezoneUtc = timezone.utc
 timezoneLocal = tz.gettz('Europe/London')
 
+# TODO Move "options env vars" handling to own function?
+# TODO Make MQTT Will optional. Not sure how. Can set env var to empty string?
 if os.getenv('MQTT_HOST') is not None:
     mqttHost = os.getenv('MQTT_HOST')
 
@@ -155,7 +180,8 @@ if os.getenv('MQTT_KEEPALIVE') is not None:
     mqttKeepalive = int(os.getenv('MQTT_KEEPALIVE'))
 
 if os.getenv('MQTT_PROTO_VERSION') is not None:
-    # TODO It'd be nice to support future protocol versions without having to update this list.
+    # TODO It'd be nice to support future protocol versions without having to
+    #      update this list.
     #      Can that be done while still performing some validation here?
     envProtoVersion = os.getenv('MQTT_PROTO_VERSION')
     if envProtoVersion.lower() == 'mqttv31':
@@ -168,13 +194,16 @@ if os.getenv('MQTT_PROTO_VERSION') is not None:
         exit("MQTT_PROTO_VERSION env var must be 'MQTTv31' or 'MQTTv311', not '{0}'!".format(envProtoVersion))
 
 if os.getenv('MQTT_RECONNECT_MIN_DELAY_SECS') is not None:
-    mqttReconnectDelayMin = int(os.getenv('MQTT_RECONNECT_MIN_DELAY_SECS')) # TODO Validation + sanity check
+    # TODO Validation + sanity check
+    mqttReconnectDelayMin = int(os.getenv('MQTT_RECONNECT_MIN_DELAY_SECS'))
 
 if os.getenv('MQTT_RECONNECT_MAX_DELAY_SECS') is not None:
-    mqttReconnectDelayMax = int(os.getenv('MQTT_RECONNECT_MAX_DELAY_SECS')) # TODO Validation + sanity check
+    # TODO Validation + sanity check
+    mqttReconnectDelayMax = int(os.getenv('MQTT_RECONNECT_MAX_DELAY_SECS'))
 
 if os.getenv('MQTT_TOPIC') is not None:
-    mqttTopic = os.getenv('MQTT_TOPIC') # TODO Add some validation
+    # TODO Add some validation
+    mqttTopic = os.getenv('MQTT_TOPIC')
 
 if os.getenv('MQTT_WILL_PAYLOAD') is not None:
     mqttWillPayload = os.getenv('MQTT_WILL_PAYLOAD')
@@ -185,10 +214,13 @@ if os.getenv('MQTT_QOS') is not None:
 if os.getenv('MQTT_RETAIN') is not None:
     mqttRetain = os.getenv('MQTT_RETAIN').lower() in ['1', 'true']
 
+# TODO I don't think this is actually used. I think the topic is used instead
+#      (ie setting MQTT_TOPIC=energenie/raspberrypi instead of using this var)
 if os.getenv('MIHOME_LISTENER_NAME') is not None:
     mihomeListenerName = os.getenv('MIHOME_LISTENER_NAME')
 
 def mqttOnConnect(client, userdata, flags, rc):
+    # TODO Can we not use the MQTT_ERR_* consts here?
     if rc == 0: # aka MQTT_ERR_SUCCESS
         print("MQTT connected!", file=sys.stderr)
     else:
@@ -215,6 +247,7 @@ def mqttOnConnect(client, userdata, flags, rc):
             exit("Permanent connection failure reason. Exiting.")
 
 def mqttOnDisconnect(client, userdata, rc):
+    # TODO Can use MQTT_ERR_SUCCESS const instead?
     if rc == 0: # aka MQTT_ERR_SUCCESS
         print("MQTT disconnected in response to a call to `disconnect()` [on_disconnect reason code = 0]", file=sys.stderr)
     else:
@@ -409,6 +442,7 @@ def energenie_incoming(address, message):
 
 if __name__ == "__main__":
     try:
+        # TODO Move MQTT connect to own func?
         # Connect to MQTT...
         mqttClient = mqtt.Client(client_id=mqttClientId,
                 clean_session=mqttCleanSession, protocol=mqttProtocolVersion)
@@ -418,15 +452,17 @@ if __name__ == "__main__":
 
         mqttClient.username_pw_set(username=mqttUser, password=mqttPass)
 
-        # Max num of QoS>0 messages in the process of being sent/acknowledged (default=20)
-        # This system seems to receive data in bursts, so it's plausible we might have quite a lot in progress at once.
-        # TODO Make this configurable with an env var?
-        mqttClient.max_inflight_messages_set(50)
-        # Max num of pending QoS>0 messages in the outgoing queue (default=0, aka unlimited)
-        #mqttClient.max_queued_messages_set(0)
+        # Max num of QoS>0 msgs in process of being sent/ack'd (default=20)
+        # This system seems to receive data in bursts, so it's plausible we
+        #  might have quite a lot in progress at once.
+        mqttClient.max_inflight_messages_set(mqttMaxInflightMessages)
+
+        # Max num of pending QoS>0 msgs in outgoing queue (default=0/unlimited)
+        mqttClient.max_queued_messages_set(mqttMaxQueuedMessages)
 
         # Will - set what the broker will send if we disconnect unexpectedly
-        mqttClient.will_set(mqttTopic+'/lwt', mqttWillPayload, qos=mqttQoS, retain=mqttRetain)
+        if mqttWillPayload is not None:
+            mqttClient.will_set(mqttTopic+'/lwt', mqttWillPayload, qos=mqttQoS, retain=mqttRetain)
 
         # Min and max delay before reconnecting
         mqttClient.reconnect_delay_set(min_delay=mqttReconnectDelayMin,
@@ -443,7 +479,8 @@ if __name__ == "__main__":
         mqttClient.connect_async(mqttHost, port=mqttPort,
                 keepalive=mqttKeepalive, bind_address=bindAddr)
 
-        # Start a new thread to handle network traffic, automatic reconnections, etc.
+        # Start a new thread to handle network traffic, automatic
+        #  reconnections, etc.
         mqttClient.loop_start()
     except Exception as e:
         # exit("...") writes to stderr and exits with status=1
@@ -456,19 +493,28 @@ if __name__ == "__main__":
 
     # Specify discovery behaviour from one of these:
     # (See `discover_mihome.py` for `ask_fn` example)
-    # These discovery types are defined in `energenie/__init__.py` (lines ~98-120) and `energenie/Registry.py` (lines 220 onwards).
-    # TODO `discovery_auto()` was I think to blame for the registry file becoming almost 200 KiB within a day or two. Trying without it for now...
-    #energenie.discovery_auto() # Auto-add unknown devices
-    ##energenie.discovery_ask(ask_fn) # Asks for confirmation before adding unknown devices
-    ##energenie.discovery_autojoin() # Looks for join requests and auto-adds
-    ##energenie.discovery_askjoin(ask_fn) # Looks for join requests, then asks for confirmation before adding
+    # These discovery types are defined in `energenie/__init__.py` (lines
+    #  ~98-120) and `energenie/Registry.py` (lines 220 onwards).
+    # TODO `discovery_auto()` was I think to blame for the registry file
+    #      becoming almost 200 KiB within 1-2 days. Trying without for now...
+    #
+    # # Auto-add unknown devices
+    # energenie.discovery_auto()
+    # # Asks for confirmation before adding unknown devices
+    # energenie.discovery_ask(ask_fn)
+    # # Looks for join requests and auto-adds
+    # energenie.discovery_autojoin()
+    # # Looks for join requests, then asks for confirmation before adding
+    # energenie.discovery_askjoin(ask_fn)
 
     try:
         while True:
             energenie.loop()
-            # time.sleep() was only used by the example script because it was toggling switches.
+            # time.sleep() was only used by the example script because it was
+            #  toggling switches.
             # The `discover_mihome.py` example doesn't use time.sleep() at all.
-            # Although `setup_tool.py`'s `do_mihome_discovery()` uses `time.sleep(0.25)`...
+            # Although `setup_tool.py`'s `do_mihome_discovery()` uses
+            #  `time.sleep(0.25)`...
             #time.sleep(0.25)
             time.sleep(1)
             #time.sleep(APP_DELAY)
