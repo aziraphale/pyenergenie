@@ -69,16 +69,31 @@
 #  13       MIHO033     OpenSensor      Door/window open sensor (reed switch).
 # (These are the only products defined in `./energenie/Devices.py`)
 
-# NOTE Only MQTT QoS>0 messages will be queued or retried!
+# NOTE Only MQTT QoS>0 (1 or 2) msgs will be queued/retried by paho-mqtt!
 
 # TODO Optionally publish ALL received data, regardless of existence in
-#      registry (if possible).
+#       registry (if possible).
 
 # Dependencies:
-# - dateutil: https://pypi.org/project/python-dateutil/ | https://dateutil.readthedocs.io/
+# - Python 3
+#   - This was written for, and tested with, Python 3.4, on
+#      Raspbian/Raspberry Pi OS "jessie", on a Raspberry Pi Zero V1.3
+#      (yes, in 2021! This RPi needs updating!).
+#   - Newer versions of Python 3 should work, as should newer versions of
+#      Raspbian/Raspberry Pi OS, and other Raspberry Pi boards. Let me know
+#      if that's not the case!
+#   - Python 2 is explicitly UNTESTED: it's end-of-life and not supported.
+#      You need to start using Python 3!
+# - dateutil
 #   - pip install python-dateutil
-# - paho-mqtt: https://pypi.org/project/paho-mqtt/
+#   - https://pypi.org/project/python-dateutil/
+#   - https://dateutil.readthedocs.io/
+# - paho-mqtt
 #   - pip install paho-mqtt
+#   - https://pypi.org/project/paho-mqtt/
+# - pyenergenie
+#   - https://github.com/whaleygeek/pyenergenie
+#   - https://github.com/Energenie/pyenergenie
 
 import energenie
 import Logger
@@ -360,7 +375,6 @@ def prodIdToName(prodId):
 def energy_monitor_loop():
     # Process any received messages from the real radio
     # TODO Is this where "new device found; add to registry?" messages are generated?
-    # TODO "New device found" prompts need to be handled automatically for this script to run as a daemon!
     energenie.loop()
 
     # For all devices in the registry, if they have a get_power(), call it
