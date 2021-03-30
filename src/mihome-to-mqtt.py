@@ -51,6 +51,7 @@ mqttTopic = "energenie"
 mqttWillPayload = "Offline"
 mqttQoS = 1
 mqttRetain = True
+mihomeListenerName = socket.gethostname()
 timezoneUtc = timezone.utc
 timezoneLocal = tz.gettz('Europe/London')
 
@@ -106,6 +107,9 @@ if os.getenv('MQTT_QOS') is not None:
 
 if os.getenv('MQTT_RETAIN') is not None:
     mqttRetain = os.getenv('MQTT_RETAIN').lower() in ['1', 'true']
+
+if os.getenv('MIHOME_LISTENER_NAME') is not None:
+    mihomeListenerName = os.getenv('MIHOME_LISTENER_NAME')
 
 def mqttOnConnect(client, userdata, flags, rc):
     if rc == 0: # aka MQTT_ERR_SUCCESS
@@ -205,7 +209,7 @@ def getDataFromMessage(msg):
     #  present in the decoded message; left to right:
     # 0=switch/door-sensor, 1=voltage, 2=frequency, 3=reactive-power,
     # 4=real-power, 5=apparent-power, 6=current, 7=temperature
-    flagsStr = "".join([str(int(a)) for a in flags])
+    #flagsStr = "".join([str(int(a)) for a in flags])
 
     #csv = "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s" % (timestamp, mfrid, productid, sensorid, flags, switch, voltage, freq, reactive, real, apparent, current, temperature)
     # Example from CSV:
@@ -224,24 +228,24 @@ def getDataFromMessage(msg):
     return {
             'Timestamp':        timestamp,
             'DateTime':         isodate,
-            'ManufacturerID':          manufId,
-            'ManufacturerName':        manufName,
-            'ProductID':           prodId,
-            'ProductCode':         prodCode,
-            'ProductName':         prodName,
+            'Source':           mihomeListenerName,
+            'ManufacturerID':   manufId,
+            'ManufacturerName': manufName,
+            'ProductID':        prodId,
+            'ProductCode':      prodCode,
+            'ProductName':      prodName,
             'SensorID':         sensorId,
-            #'flagsStr':         flagsStr,
-            #'flags': {
-                'HasSwitch':           flags[0],
-                'HasVoltage':          flags[1],
-                'HasFrequency':        flags[2],
-                'HasReactivePower':    flags[3],
-                'HasRealPower':        flags[4],
-                'HasApparentPower':    flags[5],
-                'HasCurrent':          flags[6],
-                'HasTemperature':      flags[7],
-            #},
-            'SwitchState':           switch,
+
+            'HasSwitch':        flags[0],
+            'HasVoltage':       flags[1],
+            'HasFrequency':     flags[2],
+            'HasReactivePower': flags[3],
+            'HasRealPower':     flags[4],
+            'HasApparentPower': flags[5],
+            'HasCurrent':       flags[6],
+            'HasTemperature':   flags[7],
+
+            'SwitchState':      switch,
             'Voltage':          voltage,
             'Frequency':        freq,
             'RealPower':        real,
