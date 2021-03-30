@@ -9,6 +9,65 @@
 # Devices can be added to the registry (and renamed, etc.) using the
 #  "2. mihome discovery mode" menu item of the `setup_tool.py` script in this
 #  repository: run `python setup_tool.py` to access it.
+#
+# MQTT topic has this format:
+#  <$MQTT_TOPIC>/<manuf ID>/<manuf name>/<prod ID>/<prod code>/<prod name>/<device ID>
+# e.g.:
+#  energenie/4/Energenie/5/MIHO006/HomeMonitor/12345
+#  energenie/4/Energenie/1/MIHO004/Monitor/1337
+#  energenie/4/Energenie/2/MIHO005/AdaptorPlus/16777210
+# Where:
+# - `$MQTT_TOPIC` is the topic prefix set by the MQTT_TOPIC environment
+#    variable; e.g. "energenie".
+# - `manuf ID` is the numeric manufacturer ID received; e.g. `4`=Energenie.
+#     - This will probably always be 4 for Energenie. I'm not aware of other
+#       manufacturers using this system.
+#     - See below list of known manufacturers.
+# - `manuf name` is the manufacturer's name, if the manufacturer ID is
+#    recognised; e.g. "Energenie".
+#     - Again, this will likely always be "Energenie".
+#     - See below list of known manufacturers.
+# - `prod ID` is the numeric product ID received; e.g. `1`="pink" monitor-only
+#    sockets, `5`=whole-house monitor.
+#     - See below list of known products.
+# - `prod code` is the "MIHOxxx" product "code", if the product ID is
+#    recognised; e.g. "MIHO004"=monitor-only socket.
+#     - (NOTE: Energenie product codes consist of "MIHO" as letters, followed
+#       by 3 digits, e.g. "004". Do not confuse "MIHO"'s capital "o" with the
+#       zeroes in the digits!)
+#     - See below list of known products.
+# - `prod name` is the product "name".
+#     - I'm not sure if this is "official" in any way, or just the name used
+#       by the `pyenergenie` library on which this service is based, but it's
+#       a more easily-recognisable way of identifying products than their IDs
+#       or codes, at least.
+#     - See below list of known products.
+# - `device ID` is the numeric unique ID assigned to each individual device;
+#    e.g. `12345`.
+#     - This is probably set when each device is manufactured, as opposed to
+#       being a number assigned by the Mi|Home service when they're paired.
+#     - Firstly, many Energenie devices are unable to receive RF signals at all
+#       (e.g. monitor-only sockets, whole-house monitor), so it wouldn't be
+#       possible to tell the device its new ID when it was paired (and this is
+#       a number that's transmitted BY each device, so it has to know what its
+#       ID is).
+#     - Secondly, my older devices have IDs with lower numbers than my newer
+#       devices, even older devices that sat unused for a couple of years
+#       without being paired!
+#
+# Known Manufacturers:
+#  ID       NAME
+#  4        Energenie
+#
+# Known Products:
+#  ID       CODE        NAME            DESCRIPTION
+#  1        MIHO004     Monitor         Socket, monitor-only, pink text.
+#  2        MIHO005     AdaptorPlus     Socket, monitor+switch, purple text.
+#  3        MIHO013     eTRV            Thermostatic radiator valve.
+#  5        MIHO006     HomeMonitor     Whole-house electricity meter clamp.
+#  12       MIHO032     MotionSensor    Motion sensor (PIR).
+#  13       MIHO033     OpenSensor      Door/window open sensor (reed switch).
+# (These are the only products defined in `./energenie/Devices.py`)
 
 # NOTE Only MQTT QoS>0 messages will be queued or retried!
 
